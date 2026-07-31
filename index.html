@@ -105,15 +105,26 @@
     <header class="topbar">
       <button id="menuBtn" class="chip-btn" aria-label="Back to game menu">← MENU</button>
       <div id="modeLabel"></div>
+      <button id="mute" class="chip-btn icon-btn" aria-label="Mute sound" aria-pressed="false">🔊</button>
       <button id="resignBtn" class="chip-btn">RESIGN</button>
     </header>
 
     <div id="status" role="status" aria-live="polite"></div>
+    <div id="botQuip" class="hidden" role="status" aria-live="polite"></div>
 
     <section class="play-area">
       <div class="board-frame">
         <div class="board-crown" aria-hidden="true">♛</div>
+        <div class="capture-tray">
+          <span>BLACK TOOK</span>
+          <div id="blackCaptures" class="captured-pieces" aria-label="Pieces captured by Black"></div>
+        </div>
         <div id="board" role="grid" aria-label="Chess board"></div>
+        <div class="capture-tray white-tray">
+          <span>WHITE TOOK</span>
+          <div id="whiteCaptures" class="captured-pieces" aria-label="Pieces captured by White"></div>
+        </div>
+        <div id="moveCallout" class="move-callout hidden" aria-hidden="true"></div>
       </div>
 
       <aside class="score-card">
