@@ -10,6 +10,7 @@ import {
   getStatus, getBoard, getMoveHistory,
 } from './engine.js';
 import { chooseMove } from './bot.js';
+import { sound } from './audio.js';
 import { OnlineMatch, savedSession, clearSession, getName } from './rooms.js';
 
 const $ = (id) => document.getElementById(id);
@@ -17,10 +18,14 @@ const menuEl = $('menu');
 const gameEl = $('game');
 const boardEl = $('board');
 const statusEl = $('status');
+const botQuipEl = $('botQuip');
 const modeLabelEl = $('modeLabel');
 const moveListEl = $('moveList');
 const moveCountEl = $('moveCount');
 const emptyMovesEl = $('emptyMoves');
+const blackCapturesEl = $('blackCaptures');
+const whiteCapturesEl = $('whiteCaptures');
+const moveCalloutEl = $('moveCallout');
 const resultEl = $('result');
 const resultKickerEl = $('resultKicker');
 const resultTextEl = $('resultText');
@@ -30,6 +35,7 @@ const promotionEl = $('promotion');
 const promotionChoicesEl = $('promotionChoices');
 const menuBtn = $('menuBtn');
 const rematchBtn = $('rematchBtn');
+const muteBtn = $('mute');
 const onlinePanel = $('onlinePanel');
 const opTitle = $('opTitle');
 const opName = $('opName');
@@ -59,6 +65,54 @@ const DRAW_COPY = {
   'threefold-repetition': ['DRAW BY REPETITION', 'The same position appeared three times.'],
   'fifty-move': ['FIFTY-MOVE DRAW', 'Fifty moves each without a pawn move or capture.'],
 };
+const BOT_RESULT_LINES = {
+  tourist: {
+    win: {
+      close: [
+        'The Tourist: “That was closer than the map suggested.”',
+        'The Tourist: “One wrong turn. Nicely played.”',
+      ],
+      clear: [
+        'The Tourist: “You knew every shortcut.”',
+        'The Tourist: “I came for the view. You came to win.”',
+      ],
+    },
+    loss: {
+      close: [
+        'The Tourist: “Found the winning route by accident!”',
+        'The Tourist: “That one belongs on a postcard.”',
+      ],
+      clear: [
+        'The Tourist: “Beginner’s luck loves Burlington.”',
+        'The Tourist: “I followed the little horse. It worked!”',
+      ],
+    },
+  },
+  club: {
+    win: {
+      close: [
+        'The Club: “Excellent finish. Your chair is waiting.”',
+        'The Club: “A proper top-table battle.”',
+      ],
+      clear: [
+        'The Club: “Decisive. The board is yours.”',
+        'The Club: “A commanding Queen City performance.”',
+      ],
+    },
+    loss: {
+      close: [
+        'The Club: “A narrow edge. Another game?”',
+        'The Club: “Well fought. The last detail decided it.”',
+      ],
+      clear: [
+        'The Club: “The top table holds—for now.”',
+        'The Club: “Study the position, then come right back.”',
+      ],
+    },
+  },
+};
+const CAPTURE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let mode = 'pass';
 let state = createInitialState();
@@ -71,6 +125,16 @@ let botTimer = 0;
 let resignTimer = 0;
 let resignArmed = false;
 let online = null; // { match, myPlayer } while seated at an online table
+let effectGeneration = 0;
+let calloutTimer = 0;
+let quipTimer = 0;
+let celebrationTimer = 0;
+let gameSerial = 0;
+let resultLineGame = -1;
+let resultLine = '';
+let resultLineSequence = 0;
+let restoredAt = -Infinity;
+const usedResultLines = new Set();
 
 document.querySelectorAll('[data-mode]').forEach((button) => {
   button.addEventListener('click', () => startMatch(button.dataset.mode));
@@ -79,6 +143,15 @@ menuBtn.addEventListener('click', backToMenu);
 rematchBtn.addEventListener('click', rematch);
 resignBtn.addEventListener('click', onResign);
 $('promotionCancel').addEventListener('click', closePromotion);
+muteBtn.addEventListener('click', () => {
+  sound.toggleMuted();
+  renderMute();
+});
+document.addEventListener('pointerdown', () => sound.unlock(), { once: true });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) restoredAt = performance.now();
+});
+renderMute();
 
 function startMatch(chosenMode) {
   const definition = MODE_DEFS[chosenMode];
@@ -92,6 +165,8 @@ function startMatch(chosenMode) {
 function newGame() {
   clearTimeout(botTimer);
   disarmResign();
+  resetEffects();
+  gameSerial++;
   state = createInitialState();
   selectedSquare = null;
   selectedMoves = [];
@@ -124,6 +199,7 @@ function backToMenu() {
   }
   clearTimeout(botTimer);
   disarmResign();
+  resetEffects();
   busy = false;
   closePromotion();
   gameEl.classList.add('hidden');
@@ -203,6 +279,8 @@ function closePromotion() {
 }
 
 function commitMove(move) {
+  const previousState = state;
+  const visual = prepareMoveVisual(move);
   const movingColor = move.color;
   state = applyMove(state, move);
   selectedSquare = null;
@@ -210,8 +288,9 @@ function commitMove(move) {
   const status = getStatus(state);
   if (mode === 'pass' && !status.over) viewColor = status.turn;
   else if (mode === 'pass') viewColor = movingColor;
-  render();
-  if (online) pushOnline();
+  render({ settled: Boolean(online) });
+  if (online) pushOnline({ previousState, visual });
+  else runTransitionEffects(previousState, visual);
   if (!status.over && isBotsTurn()) scheduleBotMove();
 }
 
@@ -226,12 +305,12 @@ function scheduleBotMove() {
   }, 240);
 }
 
-function render() {
+function render({ settled = false } = {}) {
   modeLabelEl.textContent = MODE_DEFS[mode].label;
   renderBoard();
   renderStatus();
   renderHistory();
-  renderResult();
+  renderResult(settled);
   resignBtn.disabled = getStatus(state).over || Boolean(online && online.match.status !== 'playing');
 }
 
@@ -347,17 +426,48 @@ function renderHistory() {
   emptyMovesEl.classList.toggle('hidden', history.length > 0);
   moveListEl.classList.toggle('hidden', history.length === 0);
   moveListEl.scrollTop = moveListEl.scrollHeight;
+  renderCapturedPieces(history);
 }
 
-function renderResult() {
+function renderCapturedPieces(history) {
+  blackCapturesEl.innerHTML = '';
+  whiteCapturesEl.innerHTML = '';
+  const capturedBy = { w: [], b: [] };
+  for (const move of history) {
+    if (!move.san.includes('x') || !move.captured) continue;
+    capturedBy[move.color].push({
+      color: move.color === WHITE ? BLACK : WHITE,
+      type: move.captured,
+    });
+  }
+  for (const color of [BLACK, WHITE]) {
+    const tray = color === BLACK ? blackCapturesEl : whiteCapturesEl;
+    for (const piece of capturedBy[color]) {
+      const icon = document.createElement('span');
+      icon.className = piece.color === WHITE ? 'captured-white' : 'captured-black';
+      icon.textContent = PIECES[piece.color][piece.type];
+      icon.title = `${piece.color === WHITE ? 'White' : 'Black'} ${PIECE_NAMES[piece.type]}`;
+      tray.appendChild(icon);
+    }
+    const description = capturedBy[color].length
+      ? capturedBy[color].map((piece) => PIECE_NAMES[piece.type]).join(', ')
+      : 'none';
+    tray.setAttribute('aria-label', `Pieces captured by ${color === WHITE ? 'White' : 'Black'}: ${description}`);
+  }
+}
+
+function renderResult(settled = false) {
   const status = getStatus(state);
   if (!status.over) {
     resultEl.classList.add('hidden');
+    resultEl.classList.remove('settled', 'loss');
     celebrationEl.classList.add('hidden');
     return;
   }
 
   resultEl.classList.remove('hidden');
+  resultEl.classList.toggle('settled', settled);
+  resultEl.classList.toggle('loss', resultIsLoss(status));
   if (status.draw) {
     const [heading, copy] = DRAW_COPY[status.reason] || ['DRAW', 'Honors are even.'];
     resultKickerEl.textContent = heading;
@@ -389,8 +499,8 @@ function renderResult() {
         ? `${MODE_DEFS[mode].label} takes the top table.`
         : 'You resigned. Fresh board?';
     }
+    if (isBotMode()) resultTextEl.textContent += ` ${botResultLine(status)}`;
   }
-  celebrationEl.classList.toggle('hidden', status.reason !== 'checkmate');
 }
 
 function onResign() {
@@ -405,11 +515,13 @@ function onResign() {
   }
   clearTimeout(botTimer);
   busy = false;
+  const previousState = state;
   const resigning = online ? online.myPlayer : (isBotMode() ? WHITE : status.turn);
   state = resignGame(state, resigning);
   disarmResign();
-  render();
-  if (online) pushOnline();
+  render({ settled: Boolean(online) });
+  if (online) pushOnline({ previousState, visual: null });
+  else runTransitionEffects(previousState, null);
 }
 
 function disarmResign() {
@@ -428,6 +540,253 @@ function squareLabel(square, piece, legal) {
     ? `${piece.color === WHITE ? 'white' : 'black'} ${PIECE_NAMES[piece.type]}`
     : 'empty';
   return `${square}, ${occupant}${legal ? ', legal destination' : ''}`;
+}
+
+/* ---------------------------------------------------------- game feel */
+
+function renderMute() {
+  muteBtn.textContent = sound.muted ? '🔇' : '🔊';
+  muteBtn.setAttribute('aria-label', sound.muted ? 'Turn sound on' : 'Mute sound');
+  muteBtn.setAttribute('aria-pressed', String(sound.muted));
+}
+
+function resetEffects() {
+  effectGeneration++;
+  clearTimeout(calloutTimer);
+  clearTimeout(quipTimer);
+  clearTimeout(celebrationTimer);
+  moveCalloutEl.className = 'move-callout hidden';
+  moveCalloutEl.textContent = '';
+  botQuipEl.classList.add('hidden');
+  botQuipEl.textContent = '';
+  celebrationEl.classList.add('hidden');
+  celebrationEl.classList.remove('loss');
+  blackCapturesEl.classList.remove('just-captured');
+  whiteCapturesEl.classList.remove('just-captured');
+  document.querySelectorAll('.capture-ghost').forEach((node) => node.remove());
+}
+
+function prepareMoveVisual(move) {
+  if (!move) return null;
+  const movingPiece = boardEl.querySelector(`[data-square="${move.from}"] .piece`);
+  let capturedPiece = null;
+  if (move.captured) {
+    const captureSquare = String(move.flags || '').includes('e')
+      ? `${move.to[0]}${move.from[1]}`
+      : move.to;
+    capturedPiece = boardEl.querySelector(`[data-square="${captureSquare}"] .piece`);
+  }
+  return {
+    fromRect: movingPiece ? copyRect(movingPiece.getBoundingClientRect()) : null,
+    captured: capturedPiece ? {
+      rect: copyRect(capturedPiece.getBoundingClientRect()),
+      text: capturedPiece.textContent,
+      color: capturedPiece.classList.contains('white') ? 'white' : 'black',
+      fontSize: getComputedStyle(capturedPiece).fontSize,
+    } : null,
+  };
+}
+
+function copyRect(rect) {
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function transitionMove(previousState, nextState = state) {
+  if (!previousState || nextState.history.length !== previousState.history.length + 1) return null;
+  for (let i = 0; i < previousState.history.length; i++) {
+    if (!sameMove(previousState.history[i], nextState.history[i])) return null;
+  }
+  return nextState.history[nextState.history.length - 1];
+}
+
+function sameMove(a, b) {
+  return Boolean(a && b &&
+    a.from === b.from &&
+    a.to === b.to &&
+    (a.promotion || '') === (b.promotion || '') &&
+    a.san === b.san);
+}
+
+function runTransitionEffects(previousState, visual) {
+  const move = transitionMove(previousState);
+  const wasOver = previousState ? getStatus(previousState).over : true;
+  const status = getStatus(state);
+  const newlyOver = !wasOver && status.over;
+  if (!move && !newlyOver) return;
+
+  if (move) {
+    animateMove(move, visual);
+    if (move.captured) {
+      animateCapture(visual);
+      pulseCaptureTray(move.color);
+      if (!status.over) {
+        showCallout('CAPTURE', true);
+        showBotQuip(move);
+      }
+    }
+    if (status.check && !status.checkmate) showCheck();
+    playMoveSound(move, status);
+  }
+
+  if (newlyOver) {
+    if (!status.draw) showCelebration(status);
+    if (status.draw) sound.draw();
+    else if (!status.checkmate) sound.resolution(!resultIsLoss(status));
+    resultEl.classList.remove('settled');
+    rematchBtn.focus({ preventScroll: true });
+  }
+}
+
+function animateMove(move, visual) {
+  if (motionQuery.matches || !visual?.fromRect) return;
+  const movedPiece = boardEl.querySelector(`[data-square="${move.to}"] .piece`);
+  if (!movedPiece || typeof movedPiece.animate !== 'function') return;
+  const destination = movedPiece.getBoundingClientRect();
+  const deltaX = visual.fromRect.left - destination.left;
+  const deltaY = visual.fromRect.top - destination.top;
+  movedPiece.animate([
+    { transform: `translate(${deltaX}px, ${deltaY}px)` },
+    { transform: 'translate(0, -1%)' },
+  ], {
+    duration: 180,
+    easing: 'cubic-bezier(0.22, 0.8, 0.28, 1)',
+  });
+}
+
+function animateCapture(visual) {
+  if (motionQuery.matches || !visual?.captured) return;
+  const ghost = document.createElement('span');
+  const captured = visual.captured;
+  ghost.className = `capture-ghost ${captured.color}`;
+  ghost.textContent = captured.text;
+  Object.assign(ghost.style, {
+    left: `${captured.rect.left}px`,
+    top: `${captured.rect.top}px`,
+    width: `${captured.rect.width}px`,
+    height: `${captured.rect.height}px`,
+    fontSize: captured.fontSize,
+  });
+  document.body.appendChild(ghost);
+  ghost.addEventListener('animationend', () => ghost.remove(), { once: true });
+  window.setTimeout(() => ghost.remove(), 400);
+}
+
+function pulseCaptureTray(color) {
+  if (motionQuery.matches) return;
+  const tray = color === WHITE ? whiteCapturesEl : blackCapturesEl;
+  tray.classList.remove('just-captured');
+  void tray.offsetWidth;
+  tray.classList.add('just-captured');
+  window.setTimeout(() => tray.classList.remove('just-captured'), 320);
+}
+
+function showCheck() {
+  if (!motionQuery.matches) {
+    const kingSquare = boardEl.querySelector('.square.check');
+    if (kingSquare) {
+      kingSquare.classList.add('check-flash');
+      kingSquare.addEventListener('animationend', () => {
+        kingSquare.classList.remove('check-flash');
+      }, { once: true });
+    }
+  }
+  showCallout('CHECK!');
+}
+
+function showCallout(text, capture = false) {
+  if (motionQuery.matches) return;
+  clearTimeout(calloutTimer);
+  moveCalloutEl.className = `move-callout${capture ? ' capture-callout' : ''}`;
+  moveCalloutEl.textContent = text;
+  void moveCalloutEl.offsetWidth;
+  moveCalloutEl.classList.add('show');
+  const generation = effectGeneration;
+  calloutTimer = window.setTimeout(() => {
+    if (generation !== effectGeneration) return;
+    moveCalloutEl.className = 'move-callout hidden';
+  }, 680);
+}
+
+function showBotQuip(move) {
+  if (!isBotMode() || !move.captured) return;
+  const botMoved = move.color === BLACK;
+  const valuable = move.captured === 'q' || move.captured === 'r';
+  const lines = mode === 'club'
+    ? {
+      bot: valuable ? 'The Club: “That piece was hanging.”' : 'The Club: “A clean pickup.”',
+      player: valuable ? 'The Club: “That one stings. Well spotted.”' : 'The Club: “Nicely taken.”',
+    }
+    : {
+      bot: valuable ? 'The Tourist: “Was that a shortcut?”' : 'The Tourist: “A souvenir!”',
+      player: valuable ? 'The Tourist: “I needed that for the itinerary.”' : 'The Tourist: “Oops—wrong pocket.”',
+    };
+  clearTimeout(quipTimer);
+  botQuipEl.textContent = botMoved ? lines.bot : lines.player;
+  botQuipEl.classList.remove('hidden');
+  const generation = effectGeneration;
+  quipTimer = window.setTimeout(() => {
+    if (generation === effectGeneration) botQuipEl.classList.add('hidden');
+  }, 2600);
+}
+
+function playMoveSound(move, status) {
+  if (status.checkmate) sound.checkmate();
+  else if (status.check) sound.check();
+  else if (move.san === 'O-O' || move.san === 'O-O-O') sound.castle();
+  else if (move.captured) sound.capture();
+  else sound.move();
+}
+
+function showCelebration(status) {
+  if (motionQuery.matches) return;
+  clearTimeout(celebrationTimer);
+  celebrationEl.classList.toggle('loss', resultIsLoss(status));
+  celebrationEl.classList.remove('hidden');
+  const generation = effectGeneration;
+  celebrationTimer = window.setTimeout(() => {
+    if (generation === effectGeneration) celebrationEl.classList.add('hidden');
+  }, 3700);
+}
+
+function resultIsLoss(status) {
+  if (status.draw || !status.winner) return false;
+  if (isBotMode()) return status.winner !== WHITE;
+  if (online) return status.winner !== online.myPlayer;
+  return false;
+}
+
+function botResultLine(status) {
+  if (resultLineGame === gameSerial) return resultLine;
+  const outcome = status.winner === WHITE ? 'win' : 'loss';
+  const closeness = isCloseGame() ? 'close' : 'clear';
+  const preferred = BOT_RESULT_LINES[mode][outcome][closeness];
+  const alternatives = BOT_RESULT_LINES[mode][outcome][closeness === 'close' ? 'clear' : 'close'];
+  const available = [...preferred, ...alternatives].filter((line) => !usedResultLines.has(line));
+  if (available.length) {
+    resultLine = available[resultLineSequence % available.length];
+  } else {
+    const name = mode === 'club' ? 'The Club' : 'The Tourist';
+    resultLine = `${name}: “Another board for the books—round ${resultLineSequence + 1}.”`;
+  }
+  usedResultLines.add(resultLine);
+  resultLineSequence++;
+  resultLineGame = gameSerial;
+  return resultLine;
+}
+
+function isCloseGame() {
+  const captured = { w: 0, b: 0 };
+  for (const move of getMoveHistory(state)) {
+    if (move.san.includes('x') && move.captured) {
+      captured[move.color] += CAPTURE_VALUES[move.captured] || 0;
+    }
+  }
+  return Math.abs(captured.w - captured.b) <= 3;
 }
 
 /* ------------------------------------------------------------- online play */
@@ -575,6 +934,8 @@ function refreshRejoin() {
 function enterOnlineGame(match) {
   clearTimeout(botTimer);
   disarmResign();
+  resetEffects();
+  gameSerial++;
   mode = 'online';
   online = { match, myPlayer: match.seat === 0 ? WHITE : BLACK };
   pollErrors = 0;
@@ -592,17 +953,25 @@ function enterOnlineGame(match) {
   onlinePanel.classList.add('hidden');
   lobbyEl.classList.add('hidden');
   gameEl.classList.remove('hidden');
-  render();
+  render({ settled: true });
   match.start({
     onState: onRemoteState,
     onStatus: onRemoteStatus,
     onPresence: onRemotePresence,
     onError: onPollError,
   });
-  if (match.status === 'over' && !getStatus(state).over) renderAbandoned();
+  if (match.status === 'over' && !getStatus(state).over) renderAbandoned(true);
 }
 
 function onRemoteState(newState) {
+  const previousState = state;
+  const move = transitionMove(previousState, newState);
+  const newlyOver = !getStatus(previousState).over && getStatus(newState).over;
+  const visual = move ? prepareMoveVisual(move) : null;
+  const allowEffects = Boolean(move || newlyOver) &&
+    pollErrors === 0 &&
+    !document.hidden &&
+    performance.now() - restoredAt > 750;
   state = newState;
   selectedSquare = null;
   selectedMoves = [];
@@ -611,7 +980,8 @@ function onRemoteState(newState) {
   busy = false;
   promotionEl.classList.add('hidden');
   rematchBtn.classList.remove('hidden');
-  render();
+  render({ settled: !allowEffects });
+  if (allowEffects) runTransitionEffects(previousState, visual);
 }
 
 function onRemoteStatus(roomStatus) {
@@ -629,8 +999,9 @@ function onRemotePresence(opponents) {
   }
 }
 
-function renderAbandoned() {
+function renderAbandoned(settled = false) {
   const opponent = online.match.opponents()[0] || {};
+  resetEffects();
   selectedSquare = null;
   selectedMoves = [];
   busy = false;
@@ -642,6 +1013,7 @@ function renderAbandoned() {
   resultKickerEl.textContent = 'TABLE CLOSED';
   resultTextEl.textContent = `${(opponent.name || 'Your opponent').toUpperCase()} left without resigning.`;
   resultEl.classList.remove('hidden');
+  resultEl.classList.toggle('settled', settled);
   celebrationEl.classList.add('hidden');
   rematchBtn.classList.add('hidden');
   resignBtn.disabled = true;
@@ -665,25 +1037,33 @@ function onPollError(err) {
   }
 }
 
-async function pushOnline() {
+async function pushOnline(transition = null) {
+  const activeOnline = online;
+  if (!activeOnline) return;
   const attemptedState = state;
   const status = getStatus(attemptedState);
+  const generation = effectGeneration;
   try {
-    await online.match.push(attemptedState, { over: status.over });
+    await activeOnline.match.push(attemptedState, { over: status.over });
+    if (online !== activeOnline || generation !== effectGeneration || state !== attemptedState) return;
     pollErrors = 0;
-    render();
+    render({ settled: true });
+    if (transition) runTransitionEffects(transition.previousState, transition.visual);
   } catch (err) {
     if (err && err.code === 'version_conflict') {
-      state = online.match.state;
+      if (online !== activeOnline) return;
+      state = activeOnline.match.state;
       onRemoteState(state);
       return;
     }
     window.setTimeout(async () => {
-      if (!online || state !== attemptedState) return;
+      if (online !== activeOnline || generation !== effectGeneration || state !== attemptedState) return;
       try {
-        await online.match.push(attemptedState, { over: status.over });
+        await activeOnline.match.push(attemptedState, { over: status.over });
+        if (online !== activeOnline || generation !== effectGeneration || state !== attemptedState) return;
         pollErrors = 0;
-        render();
+        render({ settled: true });
+        if (transition) runTransitionEffects(transition.previousState, transition.visual);
       } catch (retryErr) {
         onPollError(retryErr);
       }
@@ -693,6 +1073,8 @@ async function pushOnline() {
 
 async function onlineRematch() {
   if (!online) return;
+  resetEffects();
+  gameSerial++;
   const fresh = createInitialState();
   state = fresh;
   onRemoteState(fresh);
