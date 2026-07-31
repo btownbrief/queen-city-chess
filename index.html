@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#102f3d">
+<title>QUEEN CITY CHESS — Burlington's Chess Board</title>
+<meta name="description" content="Full chess, Burlington style. Pass the phone or face a local opponent in Queen City Chess, a Btown Games production from the BTown Brief.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="QUEEN CITY CHESS — Burlington's Chess Board">
+<meta property="og:description" content="Make your move in the Queen City. Pass the phone, take on a Tourist, or challenge the Queen City Club.">
+<meta property="og:url" content="https://play.btownbrief.com/queen-city-chess/">
+<meta property="og:image" content="https://play.btownbrief.com/queen-city-chess/icon-180.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://play.btownbrief.com/queen-city-chess/icon-180.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div class="skyline" aria-hidden="true">
+    <span class="mountain m1"></span><span class="mountain m2"></span>
+    <span class="city-hall"><i></i></span>
+  </div>
+
+  <main id="menu" class="screen">
+    <div class="menu-card">
+      <div class="eyebrow">A BTOWN GAMES PRODUCTION</div>
+      <h1 aria-label="Queen City Chess">
+        <span class="title-crown" aria-hidden="true">♛</span>
+        <span>QUEEN CITY</span>
+        <strong>CHESS</strong>
+      </h1>
+      <p class="tagline">Make your move, Burlington.<br>Full chess from the lake to the hill.</p>
+
+      <section class="modes" aria-label="Choose a game mode">
+        <button class="mode-btn pass-btn" data-mode="pass">
+          <span class="mode-icon">♟︎</span>
+          <span><b>PASS &amp; PLAY</b><small>two neighbors, one phone</small></span>
+        </button>
+        <div class="bot-row">
+          <button class="mode-btn bot-btn" data-mode="tourist">
+            <span class="mode-icon">🧳</span>
+            <span><b>THE TOURIST</b><small>spots the obvious, misses the view</small></span>
+          </button>
+          <button class="mode-btn bot-btn club" data-mode="club">
+            <span class="mode-icon">♜</span>
+            <span><b>QUEEN CITY CLUB</b><small>sharp play from the top table</small></span>
+          </button>
+        </div>
+      </section>
+    </div>
+    <footer>
+      A Btown Games production · <a href="https://play.btownbrief.com/" target="_blank" rel="noopener">More games →</a>
+      · <a href="https://www.btownbrief.com" target="_blank" rel="noopener">Read the BTown Brief →</a>
+    </footer>
+  </main>
+
+  <main id="game" class="screen hidden">
+    <header class="topbar">
+      <button id="menuBtn" class="chip-btn" aria-label="Back to game menu">← MENU</button>
+      <div id="modeLabel"></div>
+      <button id="resignBtn" class="chip-btn">RESIGN</button>
+    </header>
+
+    <div id="status" role="status" aria-live="polite"></div>
+
+    <section class="play-area">
+      <div class="board-frame">
+        <div class="board-crown" aria-hidden="true">♛</div>
+        <div id="board" role="grid" aria-label="Chess board"></div>
+      </div>
+
+      <aside class="score-card">
+        <div class="score-heading">
+          <span>GAME SCORE</span>
+          <span id="moveCount">0 MOVES</span>
+        </div>
+        <ol id="moveList" aria-label="Move history"></ol>
+        <div id="emptyMoves">Make the first move.</div>
+      </aside>
+    </section>
+
+    <section id="result" class="result-card hidden" aria-live="assertive">
+      <div id="resultKicker">CHECKMATE</div>
+      <div id="resultText"></div>
+      <button id="rematchBtn" class="primary-btn">↻ REMATCH</button>
+    </section>
+
+    <div id="celebration" class="hidden" aria-hidden="true">
+      <i>♛</i><i>🍁</i><i>♕</i><i>✦</i><i>🍁</i><i>♛</i>
+    </div>
+  </main>
+
+  <div id="promotion" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="promotionTitle">
+    <div class="promotion-card">
+      <div id="promotionTitle">CROWN YOUR PAWN</div>
+      <p>Choose its new piece.</p>
+      <div id="promotionChoices"></div>
+      <button id="promotionCancel" class="chip-btn">NOT YET</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

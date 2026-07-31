@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-labelledby="title">
+  <title id="title">Queen City Chess</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f7b88"/>
+      <stop offset="1" stop-color="#102f3d"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd66f"/>
+      <stop offset="1" stop-color="#f3b83f"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="36" fill="url(#sky)"/>
+  <path d="M0 112 L27 83 46 103 70 71 91 105 119 76 146 101 180 72 180 132 0 132Z" fill="#123d4b" opacity=".8"/>
+  <g transform="translate(20 109)">
+    <rect width="140" height="52" rx="6" fill="#6e3e1d"/>
+    <g fill="#f0dfbd">
+      <rect x="6" y="6" width="32" height="20"/>
+      <rect x="70" y="6" width="32" height="20"/>
+      <rect x="38" y="26" width="32" height="20"/>
+      <rect x="102" y="26" width="32" height="20"/>
+    </g>
+    <g fill="#477b69">
+      <rect x="38" y="6" width="32" height="20"/>
+      <rect x="102" y="6" width="32" height="20"/>
+      <rect x="6" y="26" width="32" height="20"/>
+      <rect x="70" y="26" width="32" height="20"/>
+    </g>
+  </g>
+  <circle cx="90" cy="77" r="48" fill="#09212c" opacity=".26"/>
+  <text x="90" y="113" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="94" font-weight="700" fill="#fff9e9" stroke="#18282d" stroke-width="2">♕</text>
+  <g fill="url(#gold)" stroke="#8a5715" stroke-width="1.5" stroke-linejoin="round" transform="translate(112 25) rotate(12)">
+    <path d="M0 17 L2 3 8 11 14 1 20 11 27 3 28 17Z"/>
+    <rect x="0" y="16" width="28" height="6" rx="2"/>
+  </g>
+  <path d="M38 33 C50 18 66 11 79 9" fill="none" stroke="#f5edda" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+</svg>
