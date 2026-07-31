@@ -52,8 +52,49 @@
             <span><b>QUEEN CITY CLUB</b><small>sharp play from the top table</small></span>
           </button>
         </div>
+        <div class="online-label">or play a neighbor — any two phones</div>
+        <div id="onlineRow">
+          <button class="mode-btn bot-btn" id="hostBtn">
+            <span class="mode-icon">♕</span>
+            <span><b>OPEN A TABLE</b><small>get a code, share it with a friend</small></span>
+          </button>
+          <button class="mode-btn bot-btn" id="joinBtn">
+            <span class="mode-icon">🔑</span>
+            <span><b>JOIN A TABLE</b><small>enter the code they gave you</small></span>
+          </button>
+        </div>
+        <button id="rejoinBtn" class="chip-btn hidden"></button>
       </section>
     </div>
+
+    <div id="onlinePanel" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="opTitle">
+      <div class="op-card">
+        <div id="opTitle" class="op-title">OPEN A TABLE</div>
+        <label class="op-label" for="opName">YOUR NAME</label>
+        <input id="opName" maxlength="24" autocomplete="nickname" placeholder="Chess neighbor">
+        <div id="opCodeWrap" class="hidden">
+          <label class="op-label" for="opCode">TABLE CODE</label>
+          <input id="opCode" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD">
+        </div>
+        <div id="opError" class="op-error hidden"></div>
+        <div class="op-btns">
+          <button id="opCancel" class="chip-btn">BACK</button>
+          <button id="opGo" class="primary-btn">GET A CODE</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="lobby" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="lobbyTitle">
+      <div class="op-card">
+        <div id="lobbyTitle" class="op-title">READ THIS CODE ACROSS THE TABLE</div>
+        <div id="lobbyCode"></div>
+        <div id="lobbyHint">they open this game, tap <b>JOIN A TABLE</b>, and enter it</div>
+        <div class="op-btns">
+          <button id="lobbyCancel" class="chip-btn">CLOSE THE TABLE</button>
+        </div>
+      </div>
+    </div>
+
     <footer>
       A Btown Games production · <a href="https://play.btownbrief.com/" target="_blank" rel="noopener">More games →</a>
       · <a href="https://www.btownbrief.com" target="_blank" rel="noopener">Read the BTown Brief →</a>

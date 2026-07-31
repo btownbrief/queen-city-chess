@@ -1,9 +1,8 @@
 // QUEEN CITY CHESS — UI only.
 //
 // Rendering and interaction live here; chess rules live in engine.js and
-// strategy lives in bot.js. Online play is intentionally absent in Phase 1,
-// but "online" is already a first-class mode kind so the fleet rooms adapter
-// can be added without bending local or bot play.
+// strategy lives in bot.js. Online play ferries that same engine state
+// between two phones without adding rules here.
 
 import {
   WHITE, BLACK,
@@ -11,6 +10,7 @@ import {
   getStatus, getBoard, getMoveHistory,
 } from './engine.js';
 import { chooseMove } from './bot.js';
+import { OnlineMatch, savedSession, clearSession, getName } from './rooms.js';
 
 const $ = (id) => document.getElementById(id);
 const menuEl = $('menu');
@@ -28,14 +28,23 @@ const celebrationEl = $('celebration');
 const resignBtn = $('resignBtn');
 const promotionEl = $('promotion');
 const promotionChoicesEl = $('promotionChoices');
+const menuBtn = $('menuBtn');
+const rematchBtn = $('rematchBtn');
+const onlinePanel = $('onlinePanel');
+const opTitle = $('opTitle');
+const opName = $('opName');
+const opCodeWrap = $('opCodeWrap');
+const opCode = $('opCode');
+const opError = $('opError');
+const lobbyEl = $('lobby');
+const lobbyCode = $('lobbyCode');
+const rejoinBtn = $('rejoinBtn');
 
 const MODE_DEFS = Object.freeze({
   pass: { kind: 'local', label: 'PASS & PLAY' },
   tourist: { kind: 'bot', label: 'THE TOURIST', bot: 'tourist' },
   club: { kind: 'bot', label: 'QUEEN CITY CLUB', bot: 'club' },
-  // Later phase: add the rooms adapter and menu affordances; the turn, move,
-  // and rendering paths already recognize this separate mode kind.
-  online: { kind: 'online', label: 'ONLINE MATCH' },
+  online: { kind: 'online', label: 'ONLINE TABLE' },
 });
 
 const PIECES = {
@@ -61,12 +70,13 @@ let busy = false;
 let botTimer = 0;
 let resignTimer = 0;
 let resignArmed = false;
+let online = null; // { match, myPlayer } while seated at an online table
 
 document.querySelectorAll('[data-mode]').forEach((button) => {
   button.addEventListener('click', () => startMatch(button.dataset.mode));
 });
-$('menuBtn').addEventListener('click', backToMenu);
-$('rematchBtn').addEventListener('click', newGame);
+menuBtn.addEventListener('click', backToMenu);
+rematchBtn.addEventListener('click', rematch);
 resignBtn.addEventListener('click', onResign);
 $('promotionCancel').addEventListener('click', closePromotion);
 
@@ -95,20 +105,39 @@ function newGame() {
 }
 
 function backToMenu() {
+  if (online) {
+    // Leaving abandons the room for both players; resignation is the
+    // separate in-game action, so require a deliberate second tap here.
+    if (menuBtn.dataset.armed !== '1') {
+      menuBtn.dataset.armed = '1';
+      menuBtn.textContent = 'LEAVE TABLE?';
+      window.setTimeout(() => {
+        menuBtn.dataset.armed = '';
+        menuBtn.textContent = '← MENU';
+      }, 2500);
+      return;
+    }
+    online.match.leave();
+    online = null;
+    menuBtn.dataset.armed = '';
+    menuBtn.textContent = '← MENU';
+  }
   clearTimeout(botTimer);
   disarmResign();
   busy = false;
   closePromotion();
   gameEl.classList.add('hidden');
   menuEl.classList.remove('hidden');
+  refreshRejoin();
+}
+
+function rematch() {
+  if (online) onlineRematch();
+  else newGame();
 }
 
 function isBotMode() {
   return MODE_DEFS[mode].kind === 'bot';
-}
-
-function isOnlineMode() {
-  return MODE_DEFS[mode].kind === 'online';
 }
 
 function isBotsTurn() {
@@ -118,7 +147,8 @@ function isBotsTurn() {
 
 function onSquareTap(square) {
   const status = getStatus(state);
-  if (busy || status.over || isBotsTurn() || isOnlineMode()) return;
+  if (busy || status.over || isBotsTurn()) return;
+  if (online && (status.turn !== online.myPlayer || online.match.status !== 'playing')) return;
 
   const destinationMoves = selectedMoves.filter((move) => move.to === square);
   if (selectedSquare && destinationMoves.length) {
@@ -181,6 +211,7 @@ function commitMove(move) {
   if (mode === 'pass' && !status.over) viewColor = status.turn;
   else if (mode === 'pass') viewColor = movingColor;
   render();
+  if (online) pushOnline();
   if (!status.over && isBotsTurn()) scheduleBotMove();
 }
 
@@ -201,7 +232,7 @@ function render() {
   renderStatus();
   renderHistory();
   renderResult();
-  resignBtn.disabled = getStatus(state).over;
+  resignBtn.disabled = getStatus(state).over || Boolean(online && online.match.status !== 'playing');
 }
 
 function renderBoard() {
@@ -267,6 +298,23 @@ function renderStatus() {
   }
 
   const color = COLOR_NAMES[status.turn];
+  if (online) {
+    const mine = status.turn === online.myPlayer;
+    const opponent = online.match.opponents()[0] || {};
+    if (status.check) {
+      statusEl.textContent = mine
+        ? 'CHECK — YOUR MOVE'
+        : `CHECK — WAITING ON ${(opponent.name || 'YOUR OPPONENT').toUpperCase()}`;
+      statusEl.classList.add('check');
+    } else if (mine) {
+      statusEl.textContent = `YOUR MOVE · YOU ARE ${COLOR_NAMES[online.myPlayer]}`;
+    } else {
+      const name = (opponent.name || 'YOUR OPPONENT').toUpperCase();
+      statusEl.textContent = opponent.away ? `${name} STEPPED AWAY…` : `WAITING ON ${name}…`;
+      statusEl.classList.add('thinking');
+    }
+    return;
+  }
   if (status.check) {
     statusEl.textContent = `CHECK — ${color} TO MOVE`;
     statusEl.classList.add('check');
@@ -319,6 +367,19 @@ function renderResult() {
     resultKickerEl.textContent = status.reason === 'checkmate' ? 'CHECKMATE!' : 'RESIGNED';
     if (mode === 'pass') {
       resultTextEl.textContent = `${winner} wins the board.`;
+    } else if (online) {
+      const opponent = online.match.opponents()[0] || {};
+      const opponentName = (opponent.name || 'Your opponent').toUpperCase();
+      const iWon = status.winner === online.myPlayer;
+      if (status.reason === 'resignation') {
+        resultTextEl.textContent = iWon
+          ? `${opponentName} resigned. You win the board.`
+          : 'You resigned. Fresh board?';
+      } else {
+        resultTextEl.textContent = iWon
+          ? 'You rule the Queen City board.'
+          : `${opponentName} takes the top table.`;
+      }
     } else if (status.winner === WHITE) {
       resultTextEl.textContent = status.reason === 'checkmate'
         ? 'You rule the Queen City board.'
@@ -344,10 +405,11 @@ function onResign() {
   }
   clearTimeout(botTimer);
   busy = false;
-  const resigning = isBotMode() ? WHITE : status.turn;
+  const resigning = online ? online.myPlayer : (isBotMode() ? WHITE : status.turn);
   state = resignGame(state, resigning);
   disarmResign();
   render();
+  if (online) pushOnline();
 }
 
 function disarmResign() {
@@ -367,3 +429,284 @@ function squareLabel(square, piece, legal) {
     : 'empty';
   return `${square}, ${occupant}${legal ? ', legal destination' : ''}`;
 }
+
+/* ------------------------------------------------------------- online play */
+// The rooms layer moves the engine's complete JSON state between two phones.
+// Seat 0 is White and seat 1 is Black. Remote moves are repainted cold so
+// promotion, check, history, rematches, and conflict truth all share the
+// exact same rendering path as local moves.
+
+const GAME = 'queen-city-chess';
+let panelIntent = 'host';
+let pollErrors = 0;
+
+$('hostBtn').addEventListener('click', () => openPanel('host'));
+$('joinBtn').addEventListener('click', () => openPanel('join'));
+$('opCancel').addEventListener('click', closePanel);
+$('opGo').addEventListener('click', onlineGo);
+$('lobbyCancel').addEventListener('click', cancelLobby);
+rejoinBtn.addEventListener('click', rejoinTable);
+opCode.addEventListener('input', () => {
+  opCode.value = opCode.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+});
+[opName, opCode].forEach((input) => input.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') onlineGo();
+}));
+
+function openPanel(intent) {
+  panelIntent = intent;
+  opTitle.textContent = intent === 'host' ? 'OPEN A TABLE' : 'JOIN A TABLE';
+  $('opGo').textContent = intent === 'host' ? 'GET A CODE' : 'TAKE YOUR SEAT';
+  opCodeWrap.classList.toggle('hidden', intent === 'host');
+  opError.classList.add('hidden');
+  opName.value = opName.value || getName();
+  onlinePanel.classList.remove('hidden');
+  (intent === 'join' && opName.value ? opCode : opName).focus();
+}
+
+function closePanel() {
+  onlinePanel.classList.add('hidden');
+}
+
+const FRIENDLY_ERRORS = {
+  not_found: 'No table with that code — double-check the letters.',
+  room_full: 'That table already has two players.',
+  room_started: 'That game is already under way.',
+  not_ready: "Online play isn't switched on yet — check back soon!",
+  offline: "Can't reach the table — are you online?",
+};
+
+function friendly(err) {
+  if (err && err.code === 'wrong_game') {
+    return `That code is for ${String(err.detail || 'another game').replace(/-/g, ' ')} — open that game to use it.`;
+  }
+  return (err && FRIENDLY_ERRORS[err.code]) || 'The table wobbled — please try again.';
+}
+
+async function onlineGo() {
+  const go = $('opGo');
+  if (go.disabled) return;
+  const name = opName.value.trim();
+  if (!name) {
+    opError.textContent = 'Every player needs a name.';
+    opError.classList.remove('hidden');
+    opName.focus();
+    return;
+  }
+
+  go.disabled = true;
+  opError.classList.add('hidden');
+  try {
+    if (panelIntent === 'host') {
+      const match = await OnlineMatch.create({
+        game: GAME,
+        name,
+        state: createInitialState(),
+        seats: 2,
+      });
+      closePanel();
+      openLobby(match);
+    } else {
+      const code = opCode.value.trim();
+      if (code.length !== 4) {
+        opError.textContent = 'The table code is 4 letters.';
+        opError.classList.remove('hidden');
+        opCode.focus();
+        return;
+      }
+      const match = await OnlineMatch.join({ game: GAME, code, name });
+      closePanel();
+      enterOnlineGame(match);
+    }
+  } catch (err) {
+    opError.textContent = friendly(err);
+    opError.classList.remove('hidden');
+  } finally {
+    go.disabled = false;
+  }
+}
+
+function openLobby(match) {
+  if (lobbyEl._match && lobbyEl._match !== match) lobbyEl._match.stop();
+  lobbyCode.textContent = match.code;
+  lobbyEl.classList.remove('hidden');
+  match.start({
+    onStatus: (roomStatus) => {
+      if (roomStatus === 'playing') {
+        lobbyEl.classList.add('hidden');
+        enterOnlineGame(match);
+      }
+    },
+    onError: () => {},
+  });
+  lobbyEl._match = match;
+}
+
+function cancelLobby() {
+  const match = lobbyEl._match;
+  if (match) match.leave();
+  lobbyEl._match = null;
+  lobbyEl.classList.add('hidden');
+  refreshRejoin();
+}
+
+async function rejoinTable() {
+  rejoinBtn.disabled = true;
+  try {
+    const match = await OnlineMatch.resume({ game: GAME });
+    if (match.status === 'waiting') openLobby(match);
+    else enterOnlineGame(match);
+  } catch (err) {
+    if (err && (err.code === 'not_found' || err.code === 'not_seated' || err.code === 'room_started')) {
+      clearSession(GAME);
+      refreshRejoin();
+    }
+  } finally {
+    rejoinBtn.disabled = false;
+  }
+}
+
+function refreshRejoin() {
+  const saved = savedSession(GAME);
+  rejoinBtn.classList.toggle('hidden', !saved);
+  if (saved) rejoinBtn.textContent = `↩ REJOIN YOUR TABLE (${saved.code})`;
+}
+
+function enterOnlineGame(match) {
+  clearTimeout(botTimer);
+  disarmResign();
+  mode = 'online';
+  online = { match, myPlayer: match.seat === 0 ? WHITE : BLACK };
+  pollErrors = 0;
+  state = match.state;
+  selectedSquare = null;
+  selectedMoves = [];
+  pendingPromotion = [];
+  viewColor = online.myPlayer;
+  busy = false;
+  promotionEl.classList.add('hidden');
+  celebrationEl.classList.add('hidden');
+  resultEl.classList.add('hidden');
+  rematchBtn.classList.remove('hidden');
+  menuEl.classList.add('hidden');
+  onlinePanel.classList.add('hidden');
+  lobbyEl.classList.add('hidden');
+  gameEl.classList.remove('hidden');
+  render();
+  match.start({
+    onState: onRemoteState,
+    onStatus: onRemoteStatus,
+    onPresence: onRemotePresence,
+    onError: onPollError,
+  });
+  if (match.status === 'over' && !getStatus(state).over) renderAbandoned();
+}
+
+function onRemoteState(newState) {
+  state = newState;
+  selectedSquare = null;
+  selectedMoves = [];
+  pendingPromotion = [];
+  viewColor = online.myPlayer;
+  busy = false;
+  promotionEl.classList.add('hidden');
+  rematchBtn.classList.remove('hidden');
+  render();
+}
+
+function onRemoteStatus(roomStatus) {
+  if (roomStatus === 'over' && !getStatus(state).over) renderAbandoned();
+}
+
+function onRemotePresence(opponents) {
+  pollErrors = 0;
+  const opponent = opponents[0];
+  if (opponent && opponent.left) {
+    rematchBtn.classList.add('hidden');
+    if (!getStatus(state).over) renderAbandoned();
+  } else if (!getStatus(state).over) {
+    renderStatus();
+  }
+}
+
+function renderAbandoned() {
+  const opponent = online.match.opponents()[0] || {};
+  selectedSquare = null;
+  selectedMoves = [];
+  busy = false;
+  closePromotion();
+  renderBoard();
+  renderHistory();
+  statusEl.className = '';
+  statusEl.textContent = 'THE OTHER PLAYER LEFT THE TABLE';
+  resultKickerEl.textContent = 'TABLE CLOSED';
+  resultTextEl.textContent = `${(opponent.name || 'Your opponent').toUpperCase()} left without resigning.`;
+  resultEl.classList.remove('hidden');
+  celebrationEl.classList.add('hidden');
+  rematchBtn.classList.add('hidden');
+  resignBtn.disabled = true;
+}
+
+function onPollError(err) {
+  if (err && err.code === 'not_found') {
+    online.match.stop();
+    clearSession(GAME);
+    online = null;
+    mode = 'pass';
+    gameEl.classList.add('hidden');
+    menuEl.classList.remove('hidden');
+    refreshRejoin();
+    return;
+  }
+  pollErrors++;
+  if (pollErrors >= 3 && !getStatus(state).over) {
+    statusEl.className = 'thinking';
+    statusEl.textContent = 'CHOPPY CONNECTION — HOLD YOUR MOVE…';
+  }
+}
+
+async function pushOnline() {
+  const attemptedState = state;
+  const status = getStatus(attemptedState);
+  try {
+    await online.match.push(attemptedState, { over: status.over });
+    pollErrors = 0;
+    render();
+  } catch (err) {
+    if (err && err.code === 'version_conflict') {
+      state = online.match.state;
+      onRemoteState(state);
+      return;
+    }
+    window.setTimeout(async () => {
+      if (!online || state !== attemptedState) return;
+      try {
+        await online.match.push(attemptedState, { over: status.over });
+        pollErrors = 0;
+        render();
+      } catch (retryErr) {
+        onPollError(retryErr);
+      }
+    }, 1500);
+  }
+}
+
+async function onlineRematch() {
+  if (!online) return;
+  const fresh = createInitialState();
+  state = fresh;
+  onRemoteState(fresh);
+  try {
+    await online.match.push(fresh, {});
+    render();
+  } catch (err) {
+    if (err && err.code === 'version_conflict') {
+      state = online.match.state;
+      onRemoteState(state);
+    } else {
+      onPollError(err);
+    }
+  }
+}
+
+refreshRejoin();

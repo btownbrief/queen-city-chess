@@ -13,23 +13,25 @@ browser arcade from the [BTown Brief](https://www.btownbrief.com).
 - **The Tourist** — likes captures and otherwise wanders into a random move.
 - **Queen City Club** — depth 2–3 minimax with alpha–beta pruning, material
   values, and piece-square tables under a phone-friendly time budget.
-
-Online multiplayer is intentionally not part of Phase 1. The UI mode handling
-already reserves a separate `online` mode for the fleet rooms layer.
+- **Online Table** — White opens a table, shares a four-character code, and
+  Black joins from a second phone.
 
 ## How it works
 
-Plain static site: no build step, frameworks, npm, accounts, or backend.
+Plain static site: no build step, frameworks, npm, accounts, or repo-specific
+backend. Online tables use Btown Games' shared rooms service.
 
 | file | responsibility |
 | --- | --- |
 | `js/engine.js` | all chess rules behind pure functions over JSON state |
 | `js/bot.js` | Tourist and Queen City Club strategy using only the engine API |
 | `js/main.js` | board rendering, taps, promotion UI, move list, and game screens |
+| `js/rooms.js` | shared, game-agnostic two-phone room client |
 | `vendor/chess.js` | chess.js v1.4.0 ESM build, vendored locally |
 | `scripts/test-engine.mjs` | Node checks for special moves, draws, sync state, and the Club |
+| `scripts/test-rooms.mjs` | two simulated phones playing through the room client |
 
-The engine state is the future online-sync contract:
+The engine state is the online-sync contract:
 
 ```js
 {
@@ -52,6 +54,7 @@ It owns move legality and chess result detection.
 
 ```bash
 node scripts/test-engine.mjs
+node scripts/test-rooms.mjs
 ```
 
 The script covers legal and illegal castling, en passant, promotion,

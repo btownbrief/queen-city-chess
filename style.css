@@ -226,6 +226,98 @@ h1 strong {
 .mode-icon { flex: none; font-size: 24px; }
 .club .mode-icon { color: var(--gold); }
 
+/* ------------------------------------------------------------ online play */
+
+.online-label {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.13em;
+  text-align: center;
+  text-transform: uppercase;
+}
+#onlineRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+#rejoinBtn {
+  align-self: center;
+  color: var(--gold);
+}
+.op-card {
+  width: min(92vw, 360px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 18px;
+  border: 3px solid var(--gold-deep);
+  border-radius: 20px;
+  color: var(--cream);
+  background: linear-gradient(145deg, var(--lake), var(--night));
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.52);
+  text-align: center;
+}
+.op-title {
+  color: var(--gold);
+  font-size: 16px;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+}
+.op-label {
+  margin-bottom: -6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-align: left;
+}
+.op-card input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid rgba(245, 237, 218, 0.3);
+  border-radius: 12px;
+  outline: none;
+  color: var(--cream);
+  background: rgba(9, 33, 44, 0.72);
+  font-size: 18px;
+  font-weight: 750;
+  text-align: center;
+}
+.op-card input:focus { border-color: var(--gold); }
+#opCode {
+  font-size: 24px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+}
+.op-error {
+  color: #ffb09c;
+  font-size: 13px;
+  font-weight: 750;
+}
+.op-btns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.op-btns .primary-btn { margin-top: 0; }
+#lobbyCode {
+  padding: 6px 0;
+  color: var(--gold);
+  font-size: 44px;
+  font-weight: 950;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  text-shadow: 0 3px 0 var(--night-deep);
+  animation: lobbyPulse 1.6s ease-in-out infinite;
+}
+@keyframes lobbyPulse { 50% { opacity: 0.75; } }
+#lobbyHint { color: var(--muted); font-size: 13px; }
+
 footer {
   flex: none;
   color: var(--muted);
@@ -565,6 +657,7 @@ footer a { color: var(--gold); font-weight: 800; text-decoration: none; }
 @media (max-width: 380px) {
   .screen { padding-left: 9px; padding-right: 9px; }
   .bot-row { gap: 7px; }
+  #onlineRow { gap: 7px; }
   .mode-btn { gap: 6px; padding-left: 6px; padding-right: 6px; }
   .mode-icon { font-size: 20px; }
   .mode-btn b { font-size: 11px; }
@@ -577,6 +670,7 @@ footer a { color: var(--gold); font-weight: 800; text-decoration: none; }
   .menu-card { gap: 11px; padding-top: 20px; padding-bottom: 20px; }
   h1 strong { font-size: clamp(52px, 15vh, 74px); }
   .mode-btn { min-height: 64px; padding-top: 8px; padding-bottom: 8px; }
+  .online-label { margin-top: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
