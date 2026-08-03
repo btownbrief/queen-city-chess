@@ -27,6 +27,7 @@ backend. Online tables use Btown Games' shared rooms service.
 | `js/bot.js` | Tourist and Queen City Club strategy using only the engine API |
 | `js/main.js` | board rendering, taps, promotion UI, move list, and game screens |
 | `js/rooms.js` | shared, game-agnostic two-phone room client |
+| `js/leaderboard.js` | monthly leaderboard client (Supabase); vs-bot wins only, no accounts |
 | `vendor/chess.js` | chess.js v1.4.0 ESM build, vendored locally |
 | `scripts/test-engine.mjs` | Node checks for special moves, draws, sync state, and the Club |
 | `scripts/test-rooms.mjs` | two simulated phones playing through the room client |
